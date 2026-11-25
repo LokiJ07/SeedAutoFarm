@@ -15,7 +15,15 @@ class MainActivity: Activity() {
  val net=CheckBox(this).apply{text="Stop if internet unavailable";isChecked=p.getBoolean("networkGuard",true);l.addView(this)}
  val screen=CheckBox(this).apply{text="Local screen warning check (captures screen only while running; no storage or upload)";isChecked=p.getBoolean("screenGuard",true);l.addView(this)}
  l.addView(Button(this).apply{text="Save routine";setOnClickListener{try{parse(points.text.toString()); require(minutes.text.toString().toInt() in 0..720);p.edit().putString("points",points.text.toString()).putString("minutes",minutes.text.toString()).putBoolean("seedMode",mode.isChecked).putBoolean("networkGuard",net.isChecked).putBoolean("screenGuard",screen.isChecked).apply();Toast.makeText(this@MainActivity,"Saved",Toast.LENGTH_SHORT).show()}catch(e:Exception){Toast.makeText(this@MainActivity,"Invalid routine",Toast.LENGTH_LONG).show()}}})
- l.addView(Button(this).apply{text="Open accessibility settings";setOnClickListener{startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}})
+ l.addView(Button(this).apply{text="Review accessibility access";setOnClickListener{
+ android.app.AlertDialog.Builder(this@MainActivity)
+ .setTitle("Accessibility and screen access")
+ .setMessage("This app can send taps to other apps and capture your screen while a routine is running. Screen images and recognized text are processed in memory, not stored or uploaded. Window and network state may be checked to stop the routine. Do not run it on sensitive screens or where automation is prohibited. You can stop the routine or disable the service at any time. Play Protect must remain enabled.")
+ .setNegativeButton("Cancel",null)
+ .setPositiveButton("I agree; open settings"){_,_->p.edit().putBoolean("accessConsentV1",true).apply();startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
+ .show()
+ }})
+ l.addView(Button(this).apply{text="Revoke app consent";setOnClickListener{p.edit().putBoolean("accessConsentV1",false).apply();startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}})
  }
 }
 data class Step(val x:Float,val y:Float,val delay:Long)
