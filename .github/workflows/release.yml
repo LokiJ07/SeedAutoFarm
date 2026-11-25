@@ -1,0 +1,52 @@
+name: Signed release candidate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      SEED_KEYSTORE_PATH: ${{ runner.temp }}/seed-release.jks
+      SEED_KEYSTORE_BASE64: ${{ secrets.SEED_KEYSTORE_BASE64 }}
+      SEED_STORE_PASSWORD: ${{ secrets.SEED_STORE_PASSWORD }}
+      SEED_KEY_ALIAS: ${{ secrets.SEED_KEY_ALIAS }}
+      SEED_KEY_PASSWORD: ${{ secrets.SEED_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" 'platforms;android-35' 'build-tools;35.0.0'
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+      - name: Prepare private signing key
+        shell: bash
+        run: |
+          set -eu
+          : "${SEED_KEYSTORE_BASE64:?Missing signing secret}"
+          : "${SEED_STORE_PASSWORD:?Missing signing secret}"
+          : "${SEED_KEY_ALIAS:?Missing signing secret}"
+          : "${SEED_KEY_PASSWORD:?Missing signing secret}"
+          umask 077
+          printf '%s' "$SEED_KEYSTORE_BASE64" | base64 -d > "$SEED_KEYSTORE_PATH"
+      - name: Build and lint
+        run: gradle :app:assembleRelease :app:lintRelease
+      - name: Verify APK signature
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SeedAutoFarm-signed-review-candidate
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+      - name: Remove temporary keystore
+        if: always()
+        run: rm -f "$SEED_KEYSTORE_PATH"
