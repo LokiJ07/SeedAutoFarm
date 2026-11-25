@@ -3,6 +3,12 @@ package com.seedfarm
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.app.KeyguardManager
+import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -29,6 +35,44 @@ class TouchService : AccessibilityService() {
     private var running = false
     private var paused = false
     private var deadline = 0L
+    private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    private var lastScan = 0L
+    private var guardNetwork = true
+    private var guardScreen = true
+
+    @Suppress("DEPRECATION")
+    private fun screenRotation(): Int = wm.defaultDisplay.rotation
+
+    private fun connected(): Boolean {
+        val manager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val caps = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun scan(g: Int) {
+        handler.postDelayed({ if(g == generation && running) stop("Screen check timed out") }, 5000)
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onFailure(errorCode: Int) { if(g==generation) stop("Screen check unavailable") }
+                override fun onSuccess(result: ScreenshotResult) {
+                    val buffer = result.hardwareBuffer
+                    val hardware = try { Bitmap.wrapHardwareBuffer(buffer,result.colorSpace) } finally { buffer.close() }
+                    if(g!=generation || !running) { hardware?.recycle(); return }
+                    val bitmap = try { hardware?.copy(Bitmap.Config.ARGB_8888,false) } finally { hardware?.recycle() }
+                    if(bitmap==null) { stop("Screen check unavailable"); return }
+                    recognizer.process(InputImage.fromBitmap(bitmap,0)).addOnSuccessListener { resultText ->
+                        if(g==generation && running) {
+                            handler.removeCallbacksAndMessages(null)
+                            val t = resultText.text.lowercase(java.util.Locale.ROOT)
+                            if(listOf("disconnected","connection lost","lost connection","error code","failed to connect","reconnect","internet connection").any { t.contains(it) }) stop("Connection warning detected")
+                            else { lastScan=SystemClock.elapsedRealtime(); tick(g) }
+                        }
+                    }.addOnFailureListener { if(g==generation) stop("Text check failed") }
+                      .addOnCompleteListener { bitmap.recycle() }
+                }
+            })
+        } catch(e:Exception) { stop("Screen check failed") }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -71,11 +115,12 @@ class TouchService : AccessibilityService() {
     }
 
     private fun unsafeReason(): String? {
+        if (guardNetwork && !connected()) return "Network unavailable"
         if (!power.isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return "Screen locked/off"
         if (power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) return "Device too hot"
         if ((getSystemService(BATTERY_SERVICE) as BatteryManager).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) in 0..9) return "Low battery"
         if (active != target || activeWindow != targetWindow) return "Window changed"
-        if (wm.currentWindowMetrics.bounds != bounds || display?.rotation != rotation) return "Display changed"
+        if (wm.currentWindowMetrics.bounds != bounds || screenRotation() != rotation) return "Display changed"
         if (SystemClock.elapsedRealtime() >= deadline) return "Timer expired"
         return null
     }
@@ -93,8 +138,9 @@ class TouchService : AccessibilityService() {
             require(minutes in 0..720)
             deadline = if(minutes==0L) Long.MAX_VALUE else SystemClock.elapsedRealtime()+minutes*60000
             target=active; targetWindow=activeWindow
-            bounds=Rect(wm.currentWindowMetrics.bounds); rotation=display?.rotation ?: 0
-            index=0; running=true; status?.text="Running"
+            bounds=Rect(wm.currentWindowMetrics.bounds); rotation=screenRotation()
+            guardNetwork=p.getBoolean("networkGuard",true); guardScreen=p.getBoolean("screenGuard",true)
+            lastScan=0L; index=0; running=true; status?.text="Running"
             tick(generation)
         } catch(e:Exception) { stop("Invalid setup") }
     }
@@ -105,11 +151,12 @@ class TouchService : AccessibilityService() {
     }
     private fun resume() {
         unsafeReason()?.let { stop(it); return }
-        paused=false; running=true; status?.text="Running"; tick(generation)
+        paused=false; running=true; lastScan=0L; status?.text="Running"; tick(generation)
     }
     private fun tick(g: Int) {
         if(g != generation || !running) return
         unsafeReason()?.let { stop(it); return }
+        if(guardScreen && (lastScan==0L || SystemClock.elapsedRealtime()-lastScan>=2000)) { scan(g); return }
         val s=steps[index % steps.size]
         val x=bounds.left+bounds.width()*s.x/100
         val y=bounds.top+bounds.height()*s.y/100
@@ -136,7 +183,7 @@ class TouchService : AccessibilityService() {
     }
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
         val p=e?.packageName?.toString() ?: return
-        if(p==packageName) return
+        if(p==packageName) { if(running || paused) stop("Settings opened"); return }
         active=p; activeWindow=e.windowId
         if((running || paused) && (p!=target || activeWindow!=targetWindow)) stop("Window changed")
     }
@@ -145,6 +192,7 @@ class TouchService : AccessibilityService() {
         stop("Service stopped")
         overlay?.let { runCatching { wm.removeView(it) } }
         overlay=null; status=null
+        runCatching { recognizer.close() }
         super.onDestroy()
     }
 }
