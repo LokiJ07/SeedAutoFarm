@@ -1,6 +1,8 @@
-# Seed Auto Farm alpha
-Generic Android touch-sequence prototype. Only use in applications where automation is permitted. No network permission, root, injection, or anti-cheat bypass. Account sanctions remain possible.
+# Seed Auto Farm v1.2 alpha
+Generic Android touch-sequence prototype for permitted automation only. No root, injection, anti-cheat bypass or automatic reconnect. Account sanctions remain possible.
 
-Configure percentage coordinates and delays (x,y,delay ms), save, enable accessibility manually, switch to the permitted target app, and press Start. Stop before switching apps. Pause stops and Start restarts. Session duration defaults to unlimited (0); optional timer 1–720 minutes. Stops on low battery (below 10% when reported), target app changes, screen lock, or manual stop. In-app disconnect detection is not implemented; an in-app popup can still receive touches. Do not use unattended. Existing saved durations remain unchanged. Disable the service when finished. Do not run unattended until real-device testing. No screen recognition, swipes or game-specific presets.
+Enter percentage coordinates and delays (x,y,delay ms), one per line. Save, enable accessibility manually, open the permitted target and press Start. Drag the control handle to move the overlay. Pause/Resume retains the current step (an in-flight tap can finish or repeat). Stop resets the sequence. Duration 0 is unlimited; 1–720 minutes is optional. The timer includes paused time.
 
-Build with Gradle 8.9, JDK 17, Android SDK 35. Debug APK is not a production release.
+Stops on window changes, screen lock/off, rotation, severe Android thermal status, low reported battery, rejected gestures, overlay overlap or manual stop. Optional default-on network validation and local screen text recognition stop on lost connectivity or recognized warning text. Text recognition is heuristic: missed or false detections are possible; no game-specific validation. Screen images are processed in memory, not stored or uploaded; INTERNET permission is explicitly removed. Accessibility screenshot access is powerful; disable service after use. Do not run unattended until physical device testing. No swipe or visual coordinate picker yet. Screen timeout remains controlled by Android.
+
+Build with Gradle 8.9, JDK 17, Android SDK 35. Bundled ML Kit text recognition. Debug APK is not a production release.
