@@ -109,6 +109,7 @@ class TouchService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        if(!getSharedPreferences("routine",0).getBoolean("accessConsentV1",false)) { disableSelf(); return }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xDD202020.toInt())
@@ -148,6 +149,7 @@ class TouchService : AccessibilityService() {
     }
 
     private fun unsafeReason(): String? {
+        if(!getSharedPreferences("routine",0).getBoolean("accessConsentV1",false)) return "Consent revoked"
         if (guardNetwork && !connected()) return "Network unavailable"
         if (!power.isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return "Screen locked/off"
         if (power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) return "Device too hot"
@@ -161,6 +163,7 @@ class TouchService : AccessibilityService() {
     private fun start() {
         if (running) return
         stop("Stopped")
+        if(!getSharedPreferences("routine",0).getBoolean("accessConsentV1",false)) { disableSelf(); return }
         if (active.isBlank() || activeWindow < 0 || active == packageName || active.startsWith("com.android.") || active == "android") {
             stop("Open permitted target first"); return
         }
