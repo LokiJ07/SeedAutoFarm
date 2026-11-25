@@ -39,6 +39,10 @@ class TouchService : AccessibilityService() {
     private var lastScan = 0L
     private var guardNetwork = true
     private var guardScreen = true
+    private var seedMode = false
+    private var lastPrompt = ""
+    private var lastActionAt = 0L
+    private var lastProgress = 0L
 
     @Suppress("DEPRECATION")
     private fun screenRotation(): Int = wm.defaultDisplay.rotation
@@ -65,7 +69,36 @@ class TouchService : AccessibilityService() {
                             handler.removeCallbacksAndMessages(null)
                             val t = resultText.text.lowercase(java.util.Locale.ROOT)
                             if(listOf("disconnected","connection lost","lost connection","error code","failed to connect","reconnect","internet connection").any { t.contains(it) }) stop("Connection warning detected")
-                            else { lastScan=SystemClock.elapsedRealtime(); tick(g) }
+                            else {
+                                lastScan=SystemClock.elapsedRealtime()
+                                if(seedMode) {
+                                    val now=SystemClock.elapsedRealtime()
+                                    val lines=resultText.textBlocks.flatMap { it.lines }
+                                    val reward=lines.firstOrNull { it.text.trim().uppercase(java.util.Locale.ROOT) == "THROW AGAIN" }
+                                    val back=lines.any { it.text.trim().uppercase(java.util.Locale.ROOT) == "GO BACK" }
+                                    val meter=lines.firstOrNull { it.text.trim().uppercase(java.util.Locale.ROOT).trimEnd('!') == "TAP TO THROW" }
+                                    val prompt=when {
+                                        reward!=null && back -> "reward"
+                                        meter!=null && reward==null -> "meter"
+                                        else -> ""
+                                    }
+                                    val line=if(prompt=="reward") reward else if(prompt=="meter") meter else null
+                                    val rect=line?.boundingBox
+                                    if(now-lastProgress>60000L) { stop("No recognized progress"); return@addOnSuccessListener }
+                                    if(prompt.isNotEmpty() && prompt!=lastPrompt && rect!=null && now-lastActionAt>=900L) {
+                                        val valid=if(prompt=="reward") rect.centerY()>bitmap.height*0.65 && rect.centerX() in (bitmap.width*0.20).toInt()..(bitmap.width*0.60).toInt()
+                                                  else rect.centerX() in (bitmap.width*0.25).toInt()..(bitmap.width*0.75).toInt()
+                                        if(!valid) { stop("Prompt outside expected area"); return@addOnSuccessListener }
+                                        unsafeReason()?.let { stop(it); return@addOnSuccessListener }
+                                        lastPrompt=prompt; lastActionAt=now; lastProgress=now
+                                        status?.text=if(prompt=="reward") "Reward: next throw" else "Throw requested"
+                                        tap(g,bounds.left+rect.centerX()*bounds.width().toFloat()/bitmap.width,bounds.top+rect.centerY()*bounds.height().toFloat()/bitmap.height,900L,false)
+                                    } else {
+                                        status?.text="Waiting for next prompt"
+                                        handler.postDelayed({tick(g)},850)
+                                    }
+                                } else tick(g)
+                            }
                         }
                     }.addOnFailureListener { if(g==generation) stop("Text check failed") }
                       .addOnCompleteListener { bitmap.recycle() }
@@ -139,7 +172,10 @@ class TouchService : AccessibilityService() {
             deadline = if(minutes==0L) Long.MAX_VALUE else SystemClock.elapsedRealtime()+minutes*60000
             target=active; targetWindow=activeWindow
             bounds=Rect(wm.currentWindowMetrics.bounds); rotation=screenRotation()
-            guardNetwork=p.getBoolean("networkGuard",true); guardScreen=p.getBoolean("screenGuard",true)
+            seedMode=p.getBoolean("seedMode",false)
+            if(seedMode && (target!="com.roblox.client" || bounds.width()<=bounds.height())) { stop("Open permitted landscape target"); return }
+            guardNetwork=seedMode || p.getBoolean("networkGuard",true); guardScreen=seedMode || p.getBoolean("screenGuard",true)
+            lastPrompt=""; lastActionAt=0L; lastProgress=SystemClock.elapsedRealtime()
             lastScan=0L; index=0; running=true; status?.text="Running"
             tick(generation)
         } catch(e:Exception) { stop("Invalid setup") }
@@ -151,15 +187,21 @@ class TouchService : AccessibilityService() {
     }
     private fun resume() {
         unsafeReason()?.let { stop(it); return }
-        paused=false; running=true; lastScan=0L; status?.text="Running"; tick(generation)
+        paused=false; running=true; lastScan=0L; lastProgress=SystemClock.elapsedRealtime(); status?.text="Running"; tick(generation)
     }
     private fun tick(g: Int) {
         if(g != generation || !running) return
         unsafeReason()?.let { stop(it); return }
-        if(guardScreen && (lastScan==0L || SystemClock.elapsedRealtime()-lastScan>=2000)) { scan(g); return }
+        if(seedMode || (guardScreen && (lastScan==0L || SystemClock.elapsedRealtime()-lastScan>=2000))) { scan(g); return }
         val s=steps[index % steps.size]
         val x=bounds.left+bounds.width()*s.x/100
         val y=bounds.top+bounds.height()*s.y/100
+        tap(g,x,y,s.delay,true)
+    }
+
+    private fun tap(g:Int,x:Float,y:Float,delay:Long,advance:Boolean) {
+        if(g!=generation || !running) return
+        unsafeReason()?.let { stop(it); return }
         val location=IntArray(2)
         overlay?.let {
             it.getLocationOnScreen(location)
@@ -171,7 +213,7 @@ class TouchService : AccessibilityService() {
         val gesture=GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path,0,80)).build()
         if(!dispatchGesture(gesture,object:GestureResultCallback(){
             override fun onCompleted(gd:GestureDescription) {
-                if(g==generation && running) { index=(index+1)%steps.size; handler.postDelayed({tick(g)},s.delay) }
+                if(g==generation && running) { if(advance) index=(index+1)%steps.size; handler.postDelayed({tick(g)},delay) }
             }
             override fun onCancelled(gd:GestureDescription) { if(g==generation) stop("Gesture cancelled") }
         },handler)) stop("Gesture rejected")
