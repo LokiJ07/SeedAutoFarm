@@ -7,7 +7,6 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      SEED_KEYSTORE_PATH: ${{ runner.temp }}/seed-release.jks
       SEED_KEYSTORE_BASE64: ${{ secrets.SEED_KEYSTORE_BASE64 }}
       SEED_STORE_PASSWORD: ${{ secrets.SEED_STORE_PASSWORD }}
       SEED_KEY_ALIAS: ${{ secrets.SEED_KEY_ALIAS }}
@@ -36,6 +35,8 @@ jobs:
           : "${SEED_KEY_ALIAS:?Missing signing secret}"
           : "${SEED_KEY_PASSWORD:?Missing signing secret}"
           umask 077
+          SEED_KEYSTORE_PATH="$RUNNER_TEMP/seed-release.jks"
+          echo "SEED_KEYSTORE_PATH=$SEED_KEYSTORE_PATH" >> "$GITHUB_ENV"
           printf '%s' "$SEED_KEYSTORE_BASE64" | base64 -d > "$SEED_KEYSTORE_PATH"
       - name: Build and lint
         run: gradle :app:assembleRelease :app:lintRelease
@@ -49,4 +50,4 @@ jobs:
           if-no-files-found: error
       - name: Remove temporary keystore
         if: always()
-        run: rm -f "$SEED_KEYSTORE_PATH"
+        run: rm -f "$RUNNER_TEMP/seed-release.jks"
