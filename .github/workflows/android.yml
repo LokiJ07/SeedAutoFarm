@@ -1,5 +1,8 @@
 name: Android debug APK
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,3 +29,4 @@ jobs:
         with:
           name: SeedAutoFarm-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
