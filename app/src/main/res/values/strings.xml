@@ -1,0 +1,1 @@
+<resources><string name="accessibility_description">Sends user-configured touch gestures and processes screen text locally during explicitly started routines. Use only where permitted; disable when not needed.</string></resources>
