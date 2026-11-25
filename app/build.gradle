@@ -1,6 +1,24 @@
 plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
+def signingEnv = ['SEED_KEYSTORE_PATH','SEED_STORE_PASSWORD','SEED_KEY_ALIAS','SEED_KEY_PASSWORD']
+def releaseSigningReady = signingEnv.every { System.getenv(it) }
 android { namespace 'com.seedfarm'; compileSdk 35
- defaultConfig { applicationId 'com.seedfarm'; minSdk 30; targetSdk 35; versionCode 3; versionName '1.2-alpha' }
+ defaultConfig { applicationId 'com.seedfarm'; minSdk 30; targetSdk 35; versionCode 4; versionName '1.2.1-alpha' }
+ signingConfigs {
+   release {
+     if (releaseSigningReady) {
+       storeFile file(System.getenv('SEED_KEYSTORE_PATH'))
+       storePassword System.getenv('SEED_STORE_PASSWORD')
+       keyAlias System.getenv('SEED_KEY_ALIAS')
+       keyPassword System.getenv('SEED_KEY_PASSWORD')
+     }
+   }
+ }
+ buildTypes {
+   release {
+     debuggable false
+     if (releaseSigningReady) signingConfig signingConfigs.release
+   }
+ }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
  kotlinOptions { jvmTarget = '17' }
 }
